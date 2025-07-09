@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { doc, getDoc, updateDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { FirestoreService } from "@/lib/firebase-admin"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -11,19 +10,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const memoryDoc = await getDoc(doc(db, "userMemories", userId))
+    const result = await FirestoreService.getUserMemory(userId)
 
-    if (!memoryDoc.exists()) {
-      return NextResponse.json({ memories: [] })
+    if (result.success) {
+      if (result.memory) {
+        // Convert Firestore timestamps to ISO strings for client
+        const memories = result.memory.memories.map((m: any) => ({
+          ...m,
+          timestamp: m.timestamp.toDate ? m.timestamp.toDate().toISOString() : m.timestamp,
+        }))
+        return NextResponse.json({ memories })
+      } else {
+        return NextResponse.json({ memories: [] })
+      }
+    } else {
+      return NextResponse.json({ error: result.error }, { status: 500 })
     }
-
-    const data = memoryDoc.data()
-    const memories = data.memories.map((m: any) => ({
-      ...m,
-      timestamp: m.timestamp.toDate().toISOString(),
-    }))
-
-    return NextResponse.json({ memories })
   } catch (error) {
     console.error("Error fetching memories:", error)
     return NextResponse.json({ error: "Failed to fetch memories" }, { status: 500 })
@@ -45,11 +47,18 @@ export async function PUT(request: NextRequest) {
         timestamp: new Date(m.timestamp),
       })),
       lastUpdated: new Date(),
+      totalMemories: memories.length,
+      storageUsed: JSON.stringify(memories).length,
+      storageLimit: 1024 * 1024, // 1MB
     }
 
-    await updateDoc(doc(db, "userMemories", userId), memoryData)
+    const result = await FirestoreService.saveUserMemory(userId, memoryData)
 
-    return NextResponse.json({ success: true })
+    if (result.success) {
+      return NextResponse.json({ success: true })
+    } else {
+      return NextResponse.json({ error: result.error }, { status: 500 })
+    }
   } catch (error) {
     console.error("Error updating memories:", error)
     return NextResponse.json({ error: "Failed to update memories" }, { status: 500 })

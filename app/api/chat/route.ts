@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { FirestoreService } from "@/lib/firebase-admin"
 import { MemoryManager } from "@/lib/memory-manager"
+import type { MemoryItem, UserMemory } from "@/types/chat"
 
 export async function POST(request: NextRequest) {
   if (!process.env.GEMINI_API_KEY) {
@@ -11,17 +12,22 @@ export async function POST(request: NextRequest) {
     const { message, history, userId, sessionId } = await request.json()
 
     // Get user's memory if they're logged in
-    let userMemory = null
+    let userMemory: UserMemory | null = null
     if (userId) {
       const memoryResult = await FirestoreService.getUserMemory(userId)
       if (memoryResult.success && memoryResult.memory) {
         userMemory = {
-          ...memoryResult.memory,
+          userId: memoryResult.memory.userId,
           memories: memoryResult.memory.memories.map((m: any) => ({
             ...m,
-            timestamp: new Date(m.timestamp._seconds * 1000),
+            timestamp: m.timestamp.toDate ? m.timestamp.toDate() : new Date(m.timestamp),
           })),
-          lastUpdated: new Date(memoryResult.memory.lastUpdated._seconds * 1000),
+          lastUpdated: memoryResult.memory.lastUpdated.toDate
+            ? memoryResult.memory.lastUpdated.toDate()
+            : new Date(memoryResult.memory.lastUpdated),
+          totalMemories: memoryResult.memory.totalMemories || 0,
+          storageUsed: memoryResult.memory.storageUsed || 0,
+          storageLimit: memoryResult.memory.storageLimit || 1024 * 1024,
         }
       }
     }
@@ -101,7 +107,7 @@ Guidelines:
       ])
 
       // Handle memory extraction and saving
-      let newMemories = []
+      let newMemories: MemoryItem[] = []
 
       if (isMemoryInstruction) {
         // Handle manual memory instruction

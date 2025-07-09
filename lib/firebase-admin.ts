@@ -29,9 +29,9 @@ export class FirestoreService {
                 timestamp: new Date(),
             })
             return { success: true, id: docRef.id }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving message:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error") }
+            return { success: false, error: error.message }
         }
     }
 
@@ -50,9 +50,9 @@ export class FirestoreService {
             }))
 
             return { success: true, messages }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching messages:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error"), messages: [] }
+            return { success: false, error: error.message, messages: [] }
         }
     }
 
@@ -67,9 +67,9 @@ export class FirestoreService {
                     timestamp: new Date(),
                 })
             return { success: true }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving chat session:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error") }
+            return { success: false, error: error.message }
         }
     }
 
@@ -88,9 +88,9 @@ export class FirestoreService {
             }))
 
             return { success: true, sessions }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching chat sessions:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error"), sessions: [] }
+            return { success: false, error: error.message, sessions: [] }
         }
     }
 
@@ -99,9 +99,9 @@ export class FirestoreService {
         try {
             await adminDb.collection("userMemories").doc(userId).set(memory)
             return { success: true }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving user memory:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error") }
+            return { success: false, error: error.message }
         }
     }
 
@@ -112,9 +112,77 @@ export class FirestoreService {
                 return { success: true, memory: doc.data() }
             }
             return { success: true, memory: null }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching user memory:", error)
-            return { success: false, error: (error instanceof Error ? error.message : "Unknown error"), memory: null }
+            return { success: false, error: error.message, memory: null }
+        }
+    }
+
+    // Delete operations
+    static async deleteUserMemory(userId: string) {
+        try {
+            await adminDb.collection("userMemories").doc(userId).delete()
+            return { success: true }
+        } catch (error: any) {
+            console.error("Error deleting user memory:", error)
+            return { success: false, error: error.message }
+        }
+    }
+
+    static async deleteChatSession(sessionId: string, userId: string) {
+        try {
+            // Delete the session document
+            await adminDb.collection("chatSessions").doc(sessionId).delete()
+
+            // Delete all messages in this session
+            const messagesQuery = adminDb
+                .collection("messages")
+                .where("sessionId", "==", sessionId)
+                .where("userId", "==", userId)
+
+            const messagesSnapshot = await messagesQuery.get()
+            const batch = adminDb.batch()
+
+            messagesSnapshot.docs.forEach((doc) => {
+                batch.delete(doc.ref)
+            })
+
+            await batch.commit()
+
+            return { success: true }
+        } catch (error: any) {
+            console.error("Error deleting chat session:", error)
+            return { success: false, error: error.message }
+        }
+    }
+
+    // User Preferences
+    static async saveUserPreferences(userId: string, preferences: any) {
+        try {
+            await adminDb
+                .collection("userPreferences")
+                .doc(userId)
+                .set({
+                    ...preferences,
+                    lastUpdated: new Date(),
+                })
+            return { success: true }
+        } catch (error: any) {
+            console.error("Error saving user preferences:", error)
+            return { success: false, error: error.message }
+        }
+    }
+
+    static async getUserPreferences(userId: string) {
+        try {
+            const doc = await adminDb.collection("userPreferences").doc(userId).get()
+            if (doc.exists) {
+                return { success: true, preferences: doc.data() }
+            }
+            return { success: true, preferences: { theme: "system" } }
+        } catch (error: any) {
+            console.error("Error fetching user preferences:", error)
+            return { success: false, error: error.message, preferences: { theme: "system" } }
         }
     }
 }

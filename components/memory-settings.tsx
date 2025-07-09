@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Brain, Edit3, Trash2, Plus, Save, X } from "lucide-react"
+import { Brain, Edit3, Trash2, Plus, Save, X, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -38,6 +38,7 @@ const categoryColors = {
 export function MemorySettings({ open, onOpenChange, userId }: MemorySettingsProps) {
   const [memories, setMemories] = useState<MemoryItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     content: "",
@@ -46,44 +47,76 @@ export function MemorySettings({ open, onOpenChange, userId }: MemorySettingsPro
   })
   const [showAddForm, setShowAddForm] = useState(false)
 
+  // Memoize fetchMemories to prevent unnecessary re-renders
+  const fetchMemories = useCallback(async () => {
+    if (!userId) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
+      const response = await fetch(`/api/memory?userId=${userId}`, {
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      if (response.ok) {
+        const data = await response.json()
+        setMemories(data.memories || [])
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+    } catch (error: any) {
+      console.error("Error fetching memories:", error)
+      if (error.name === "AbortError") {
+        setError("Request timed out. Please try again.")
+      } else {
+        setError("Failed to load memories. Please try again.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [userId])
+
   useEffect(() => {
     if (open && userId) {
       fetchMemories()
     }
-  }, [open, userId])
-
-  const fetchMemories = async () => {
-    if (!userId) return
-
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/memory?userId=${userId}`)
-      const data = await response.json()
-      setMemories(data.memories || [])
-    } catch (error) {
-      console.error("Error fetching memories:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [open, userId, fetchMemories])
 
   const saveMemories = async () => {
     if (!userId) return
 
     setLoading(true)
+    setError(null)
+
     try {
-      await fetch("/api/memory", {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      const response = await fetch("/api/memory", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId,
-          memories,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, memories }),
+        signal: controller.signal,
       })
-    } catch (error) {
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+    } catch (error: any) {
       console.error("Error saving memories:", error)
+      if (error.name === "AbortError") {
+        setError("Save timed out. Please try again.")
+      } else {
+        setError("Failed to save memories. Please try again.")
+      }
     } finally {
       setLoading(false)
     }
@@ -161,12 +194,23 @@ export function MemorySettings({ open, onOpenChange, userId }: MemorySettingsPro
         </DialogHeader>
 
         <div className="space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+              <Button onClick={fetchMemories} variant="outline" size="sm" className="ml-auto bg-transparent">
+                Retry
+              </Button>
+            </div>
+          )}
+
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted-foreground">{memories.length} memories stored</p>
             <Button
               onClick={() => setShowAddForm(true)}
               size="sm"
               className="bg-gradient-to-r from-purple-500 to-blue-500"
+              disabled={loading}
             >
               <Plus className="w-4 h-4 mr-2" />
               Add Memory
@@ -208,7 +252,7 @@ export function MemorySettings({ open, onOpenChange, userId }: MemorySettingsPro
                     className="w-20"
                     placeholder="1-10"
                   />
-                  <Button onClick={addMemory} size="sm">
+                  <Button onClick={addMemory} size="sm" disabled={loading}>
                     <Save className="w-4 h-4" />
                   </Button>
                   <Button onClick={() => setShowAddForm(false)} variant="outline" size="sm">
@@ -222,96 +266,101 @@ export function MemorySettings({ open, onOpenChange, userId }: MemorySettingsPro
           {/* Memories List */}
           <ScrollArea className="h-96">
             <div className="space-y-3">
-              <AnimatePresence>
-                {memories
-                  .sort((a, b) => b.importance - a.importance)
-                  .map((memory) => (
-                    <motion.div
-                      key={memory.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      className="border rounded-lg p-4 space-y-2"
-                    >
-                      {editingId === memory.id ? (
-                        <div className="space-y-3">
-                          <Input
-                            value={editForm.content}
-                            onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
-                          />
-                          <div className="flex gap-2">
-                            <select
-                              value={editForm.category}
-                              onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-                              className="px-3 py-2 border rounded-md"
-                            >
-                              {categories.map((cat) => (
-                                <option key={cat} value={cat}>
-                                  {cat.replace("_", " ")}
-                                </option>
-                              ))}
-                            </select>
+              {loading && memories.length === 0 ? (
+                <div className="text-center text-gray-500 dark:text-gray-400 py-8">Loading memories...</div>
+              ) : (
+                <AnimatePresence>
+                  {memories
+                    .sort((a, b) => b.importance - a.importance)
+                    .map((memory) => (
+                      <motion.div
+                        key={memory.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="border rounded-lg p-4 space-y-2"
+                      >
+                        {editingId === memory.id ? (
+                          <div className="space-y-3">
                             <Input
-                              type="number"
-                              min="1"
-                              max="10"
-                              value={editForm.importance}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, importance: Number.parseInt(e.target.value) })
-                              }
-                              className="w-20"
+                              value={editForm.content}
+                              onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
                             />
-                            <Button onClick={saveEdit} size="sm">
-                              <Save className="w-4 h-4" />
-                            </Button>
-                            <Button onClick={cancelEdit} variant="outline" size="sm">
-                              <X className="w-4 h-4" />
-                            </Button>
+                            <div className="flex gap-2">
+                              <select
+                                value={editForm.category}
+                                onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                                className="px-3 py-2 border rounded-md"
+                              >
+                                {categories.map((cat) => (
+                                  <option key={cat} value={cat}>
+                                    {cat.replace("_", " ")}
+                                  </option>
+                                ))}
+                              </select>
+                              <Input
+                                type="number"
+                                min="1"
+                                max="10"
+                                value={editForm.importance}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, importance: Number.parseInt(e.target.value) })
+                                }
+                                className="w-20"
+                              />
+                              <Button onClick={saveEdit} size="sm" disabled={loading}>
+                                <Save className="w-4 h-4" />
+                              </Button>
+                              <Button onClick={cancelEdit} variant="outline" size="sm">
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <p className="text-sm">{memory.content}</p>
-                              <div className="flex items-center gap-2 mt-2">
-                                <span
-                                  className={`px-2 py-1 rounded-full text-xs ${categoryColors[memory.category as keyof typeof categoryColors]}`}
-                                >
-                                  {memory.category.replace("_", " ")}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  Importance: {memory.importance}/10
-                                </span>
-                                {memory.autoGenerated && (
-                                  <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
-                                    Auto-generated
+                        ) : (
+                          <>
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <p className="text-sm">{memory.content}</p>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span
+                                    className={`px-2 py-1 rounded-full text-xs ${categoryColors[memory.category as keyof typeof categoryColors]}`}
+                                  >
+                                    {memory.category.replace("_", " ")}
                                   </span>
-                                )}
+                                  <span className="text-xs text-muted-foreground">
+                                    Importance: {memory.importance}/10
+                                  </span>
+                                  {memory.autoGenerated && (
+                                    <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
+                                      Auto-generated
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button onClick={() => startEdit(memory)} variant="ghost" size="sm" disabled={loading}>
+                                  <Edit3 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  onClick={() => deleteMemory(memory.id)}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-500 hover:text-red-700"
+                                  disabled={loading}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex gap-1">
-                              <Button onClick={() => startEdit(memory)} variant="ghost" size="sm">
-                                <Edit3 className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                onClick={() => deleteMemory(memory.id)}
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(memory.timestamp).toLocaleDateString()}
-                          </p>
-                        </>
-                      )}
-                    </motion.div>
-                  ))}
-              </AnimatePresence>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(memory.timestamp).toLocaleDateString()}
+                            </p>
+                          </>
+                        )}
+                      </motion.div>
+                    ))}
+                </AnimatePresence>
+              )}
             </div>
           </ScrollArea>
         </div>

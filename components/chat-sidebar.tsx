@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Plus, MessageSquare, Trash2, Moon, Sun, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,7 @@ interface ChatSidebarProps {
     onSelectSession: (sessionId: string) => void
     isOpen: boolean
     onToggle: () => void
+    refreshTrigger?: number
 }
 
 export function ChatSidebar({
@@ -36,22 +37,22 @@ export function ChatSidebar({
     onSelectSession,
     isOpen,
     onToggle,
+    refreshTrigger,
 }: ChatSidebarProps) {
     const [sessions, setSessions] = useState<ChatSession[]>([])
     const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const { theme, setTheme } = useTheme()
 
-    // Load sessions when user changes or component mounts
-    useEffect(() => {
-        loadSessions()
-    }, [user])
-
-    const loadSessions = async () => {
+    // Memoize loadSessions to prevent unnecessary re-renders
+    const loadSessions = useCallback(async () => {
         setLoading(true)
+        setError(null)
+
         try {
             let allSessions: ChatSession[] = []
 
-            // Always load local sessions
+            // Always load local sessions first (faster)
             const localSessions = LocalStorageManager.getChatSessions()
             const localChatSessions: ChatSession[] = localSessions.map((session) => ({
                 id: session.id,
@@ -64,10 +65,18 @@ export function ChatSidebar({
 
             allSessions = [...localChatSessions]
 
-            // If user is authenticated, also load from Firestore
+            // If user is authenticated, also load from Firestore (with error handling)
             if (user) {
                 try {
-                    const response = await fetch(`/api/chat/sessions?userId=${user.uid}`)
+                    const controller = new AbortController()
+                    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
+                    const response = await fetch(`/api/chat/sessions?userId=${user.uid}`, {
+                        signal: controller.signal,
+                    })
+
+                    clearTimeout(timeoutId)
+
                     if (response.ok) {
                         const data = await response.json()
                         const firestoreSessions: ChatSession[] = data.sessions.map((session: any) => ({
@@ -79,10 +88,10 @@ export function ChatSidebar({
                             isLocal: false,
                         }))
 
-                        // Merge sessions, avoiding duplicates
+                        // Merge sessions, avoiding duplicates (Firestore takes precedence)
                         const sessionMap = new Map<string, ChatSession>()
 
-                        // Add Firestore sessions first (they take precedence)
+                        // Add Firestore sessions first
                         firestoreSessions.forEach((session) => {
                             sessionMap.set(session.id, session)
                         })
@@ -95,9 +104,13 @@ export function ChatSidebar({
                         })
 
                         allSessions = Array.from(sessionMap.values())
+                    } else {
+                        console.warn("Failed to load Firestore sessions, using local only")
+                        setError("Could not sync with cloud. Using local sessions only.")
                     }
-                } catch (error) {
-                    console.error("Error loading Firestore sessions:", error)
+                } catch (fetchError: any) {
+                    console.warn("Error loading Firestore sessions:", fetchError.message)
+                    setError("Cloud sync unavailable. Using local sessions only.")
                     // Continue with local sessions only
                 }
             }
@@ -105,45 +118,101 @@ export function ChatSidebar({
             // Sort by timestamp (most recent first)
             allSessions.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
             setSessions(allSessions)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error loading sessions:", error)
+            setError("Failed to load chat sessions")
         } finally {
             setLoading(false)
         }
-    }
+    }, [user])
+
+    // Load sessions when user changes or component mounts
+    useEffect(() => {
+        loadSessions()
+    }, [loadSessions])
+
+    // Add after the existing useEffect for loadSessions
+    useEffect(() => {
+        if (user) {
+            // Load user theme preference
+            fetch(`/api/user/preferences?userId=${user.uid}`)
+                .then((res) => res.json())
+                .then((data) => {
+                    if (data.preferences?.theme && data.preferences.theme !== theme) {
+                        setTheme(data.preferences.theme)
+                    }
+                })
+                .catch(console.error)
+        }
+    }, [user, setTheme])
+
+    useEffect(() => {
+        if (refreshTrigger && refreshTrigger > 0) {
+            loadSessions()
+        }
+    }, [refreshTrigger, loadSessions])
 
     const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
         e.stopPropagation()
 
         try {
-            // Delete from local storage
+            // Delete from local storage immediately
             LocalStorageManager.deleteChatSession(sessionId)
 
-            // If user is authenticated, also delete from Firestore
+            // If user is authenticated, also try to delete from Firestore
             if (user) {
-                await fetch(`/api/chat/sessions/${sessionId}`, {
-                    method: "DELETE",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ userId: user.uid }),
-                })
+                try {
+                    await fetch(`/api/chat/sessions/${sessionId}`, {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ userId: user.uid }),
+                    })
+                } catch (error) {
+                    console.warn("Failed to delete from Firestore, but local deletion succeeded")
+                }
             }
 
-            // Reload sessions
-            loadSessions()
+            // Update local state immediately
+            setSessions((prev) => prev.filter((s) => s.id !== sessionId))
         } catch (error) {
             console.error("Error deleting session:", error)
         }
     }
 
-    const formatTime = (date: Date) => {
+    const formatTime = (date: Date | string) => {
+        const validDate = typeof date === "string" ? new Date(date) : date
+        if (isNaN(validDate.getTime())) {
+            return "Just now"
+        }
+
         const now = new Date()
-        const diff = now.getTime() - date.getTime()
+        const diff = now.getTime() - validDate.getTime()
         const days = Math.floor(diff / (1000 * 60 * 60 * 24))
 
         if (days === 0) return "Today"
         if (days === 1) return "Yesterday"
         if (days < 7) return `${days} days ago`
-        return date.toLocaleDateString()
+        return validDate.toLocaleDateString()
+    }
+
+    const handleThemeToggle = async () => {
+        const newTheme = theme === "dark" ? "light" : "dark"
+        setTheme(newTheme)
+
+        if (user) {
+            try {
+                await fetch("/api/user/preferences", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        userId: user.uid,
+                        preferences: { theme: newTheme },
+                    }),
+                })
+            } catch (error) {
+                console.error("Failed to save theme preference:", error)
+            }
+        }
     }
 
     return (
@@ -166,7 +235,7 @@ export function ChatSidebar({
                 initial={{ x: -320 }}
                 animate={{ x: isOpen ? 0 : -320 }}
                 transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="fixed left-0 top-0 h-full w-80 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg border-r border-gray-200 dark:border-gray-700 z-50 flex flex-col"
+                className="fixed left-0 top-0 h-full w-80 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg border-r border-gray-200 dark:border-gray-700 z-50 flex flex-col lg:translate-x-0"
             >
                 {/* Header */}
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -194,6 +263,12 @@ export function ChatSidebar({
                 {/* Chat History */}
                 <ScrollArea className="flex-1 p-4">
                     <div className="space-y-2">
+                        {error && (
+                            <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+                                {error}
+                            </div>
+                        )}
+
                         {loading ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-4">Loading chats...</div>
                         ) : sessions.length === 0 ? (
@@ -243,11 +318,7 @@ export function ChatSidebar({
 
                 {/* Footer */}
                 <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-                    <Button
-                        variant="ghost"
-                        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                        className="w-full justify-start"
-                    >
+                    <Button variant="ghost" onClick={handleThemeToggle} className="w-full justify-start">
                         {theme === "dark" ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
                         {theme === "dark" ? "Light Mode" : "Dark Mode"}
                     </Button>

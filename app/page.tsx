@@ -12,19 +12,21 @@ import { ChatHeader } from "@/components/chat/chat-header"
 import { ChatMessages } from "@/components/chat/chat-messages"
 import { ChatInput } from "@/components/chat/chat-input"
 import { useChat } from "@/hooks/use-chat"
+import { motion } from "framer-motion"
 
 export default function ChatBot() {
   const [user, setUser] = useState<FirebaseUser | null>(null)
   const [authDialogOpen, setAuthDialogOpen] = useState(false)
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [input, setInput] = useState("")
   const [isClient, setIsClient] = useState(false)
+  const [refreshSidebar, setRefreshSidebar] = useState(0)
 
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const chat = useChat(user)
+  const chat = useChat(user, () => setRefreshSidebar((prev) => prev + 1))
 
   useEffect(() => {
     setIsClient(true)
@@ -35,7 +37,8 @@ export default function ChatBot() {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current.querySelector("[data-radix-scroll-area-viewport]")
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
+        // For reversed layout, scroll to top (which shows latest messages)
+        scrollContainer.scrollTop = 0
       }
     }
   }, [chat.messages, chat.isTyping])
@@ -101,6 +104,7 @@ export default function ChatBot() {
         onSelectSession={handleSelectSession}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        refreshTrigger={refreshSidebar}
       />
 
       <div className={`relative z-10 transition-all duration-300 ${sidebarOpen ? "lg:ml-80" : ""}`}>

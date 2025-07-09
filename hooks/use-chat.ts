@@ -14,7 +14,11 @@ const DEFAULT_MESSAGE: Message = {
     timestamp: new Date(),
 }
 
-export function useChat(user: FirebaseUser | null) {
+export function useChat(
+    user: FirebaseUser | null,
+    onSessionUpdate?: () => void,
+    onSessionCreated?: (sessionId: string) => void,
+) {
     const router = useRouter()
     const searchParams = useSearchParams()
 
@@ -73,7 +77,7 @@ export function useChat(user: FirebaseUser | null) {
                         ...prev,
                         messages: localSession.messages.map((msg) => ({
                             ...msg,
-                            timestamp: new Date(msg.timestamp),
+                            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
                         })),
                         currentSessionId: sessionId,
                         isLoading: false,
@@ -89,7 +93,7 @@ export function useChat(user: FirebaseUser | null) {
                         if (data.messages && data.messages.length > 0) {
                             const messages = data.messages.map((msg: any) => ({
                                 ...msg,
-                                timestamp: new Date(msg.timestamp),
+                                timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
                             }))
                             setState((prev) => ({
                                 ...prev,
@@ -141,7 +145,10 @@ export function useChat(user: FirebaseUser | null) {
 
         // Load the session
         loadSession(newSessionId)
-    }, [loadSession])
+
+        // Callback for immediate sidebar update
+        onSessionCreated?.(newSessionId)
+    }, [loadSession, onSessionCreated])
 
     // Select existing session
     const selectSession = useCallback(
@@ -226,6 +233,8 @@ export function useChat(user: FirebaseUser | null) {
                 // Save session metadata if this is the first user message
                 if (state.messages.length === 1) {
                     await saveSessionMetadata(content.trim(), state.currentSessionId)
+                    // Trigger sidebar refresh
+                    onSessionUpdate?.()
                 }
             } catch (error) {
                 console.error("Error sending message:", error)
@@ -247,7 +256,7 @@ export function useChat(user: FirebaseUser | null) {
                 }))
             }
         },
-        [state.messages, state.currentSessionId, state.isLoading, user],
+        [state.messages, state.currentSessionId, state.isLoading, user, onSessionUpdate],
     )
 
     // Save session metadata
