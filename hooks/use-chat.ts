@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import type { Message, ChatState } from "@/types/chat"
 import { LocalStorageManager, type StoredChatSession } from "@/lib/local-storage"
@@ -22,8 +22,15 @@ export function useChat(
     const router = useRouter()
     const searchParams = useSearchParams()
 
-    // 👉 derive a stable primitive from searchParams
-    const chatIdFromUrl = searchParams.get("chat") ?? null
+    // 👉 derive a stable primitive from searchParams with error handling
+    const chatIdFromUrl = useMemo(() => {
+        try {
+            return searchParams.get("chat") ?? null
+        } catch (error) {
+            console.warn("Error reading search params:", error)
+            return null
+        }
+    }, [searchParams])
 
     const [state, setState] = useState<ChatState>({
         messages: [DEFAULT_MESSAGE],

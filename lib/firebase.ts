@@ -1,3 +1,4 @@
+// lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app"
 import { getFirestore } from "firebase/firestore"
 import { getAuth, type Auth } from "firebase/auth"
@@ -15,6 +16,14 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+}
+
+// Validate required config
+const requiredKeys = ["apiKey", "authDomain", "projectId", "appId"] as const
+for (const key of requiredKeys) {
+  if (!firebaseConfig[key]) {
+    console.error(`Missing Firebase config: NEXT_PUBLIC_FIREBASE_${key.toUpperCase()}`)
+  }
 }
 
 // Re-use the existing app if it’s already been initialised

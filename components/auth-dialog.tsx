@@ -34,9 +34,9 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password)
+        await signInWithEmailAndPassword(auth!, email, password)
       } else {
-        await createUserWithEmailAndPassword(auth, email, password)
+        await createUserWithEmailAndPassword(auth!, email, password)
       }
       onOpenChange(false)
       setEmail("")
@@ -54,7 +54,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
     try {
       const provider = new GoogleAuthProvider()
-      await signInWithPopup(auth, provider)
+      await signInWithPopup(auth!, provider)
       onOpenChange(false)
     } catch (error: any) {
       setError(error.message)

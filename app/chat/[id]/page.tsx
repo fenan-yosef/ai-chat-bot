@@ -1,22 +1,12 @@
-"use client"
+import { redirect } from "next/navigation"
 
-import { useParams, useRouter } from "next/navigation"
-import { useEffect } from "react"
-import ChatBot from "@/app/page"
+interface PageProps {
+    params: Promise<{ id: string }>
+}
 
-export default function ChatPage() {
-    const params = useParams()
-    const router = useRouter()
-    const chatId = params.id as string
+export default async function ChatPage({ params }: PageProps) {
+    const { id } = await params
 
-    // Redirect to main page with chat ID as state
-    useEffect(() => {
-        if (chatId) {
-            // Store the chat ID for the main component to pick up
-            sessionStorage.setItem("selectedChatId", chatId)
-            router.replace("/")
-        }
-    }, [chatId, router])
-
-    return <ChatBot />
+    // Redirect to main page with chat ID as query parameter
+    redirect(`/?chat=${id}`)
 }

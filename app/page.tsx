@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, Suspense } from "react"
 import { onAuthStateChanged, signOut, type User as FirebaseUser } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { AuthDialog } from "@/components/auth-dialog"
@@ -14,7 +13,7 @@ import { ChatInput } from "@/components/chat/chat-input"
 import { useChat } from "@/hooks/use-chat"
 import { motion } from "framer-motion"
 
-export default function ChatBot() {
+function ChatBotContent() {
   const [user, setUser] = useState<FirebaseUser | null>(null)
   const [authDialogOpen, setAuthDialogOpen] = useState(false)
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false)
@@ -73,12 +72,16 @@ export default function ChatBot() {
 
   const handleNewChat = () => {
     chat.createNewChat()
-    setSidebarOpen(false)
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false)
+    }
   }
 
   const handleSelectSession = (sessionId: string) => {
     chat.selectSession(sessionId)
-    setSidebarOpen(false)
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false)
+    }
   }
 
   if (!isClient) {
@@ -107,7 +110,7 @@ export default function ChatBot() {
         refreshTrigger={refreshSidebar}
       />
 
-      <div className={`relative z-10 transition-all duration-300 ${sidebarOpen ? "lg:ml-80" : ""}`}>
+      <div className={`relative z-10 transition-all duration-300 lg:ml-80`}>
         <div className="container mx-auto max-w-4xl h-screen flex flex-col p-4">
           <ChatHeader
             user={user}
@@ -126,11 +129,29 @@ export default function ChatBot() {
             onSubmit={handleSendMessage}
             disabled={chat.isLoading}
           />
+
+          {/* Add disclaimer note */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-center text-xs text-gray-500 dark:text-gray-400 mt-2"
+          >
+            Aura may make mistakes. Please double-check important information.
+          </motion.div>
         </div>
       </div>
 
       <AuthDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
       <MemorySettings open={memoryDialogOpen} onOpenChange={setMemoryDialogOpen} userId={user?.uid || null} />
     </div>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ChatBotContent />
+    </Suspense>
   )
 }

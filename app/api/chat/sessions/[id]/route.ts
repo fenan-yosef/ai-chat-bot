@@ -1,10 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { adminDb } from "@/lib/firebase-admin"
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+interface RouteParams {
+    params: Promise<{
+        id: string
+    }>
+}
+
+export async function DELETE(request: NextRequest, context: RouteParams) {
     try {
         const { userId } = await request.json()
-        const sessionId = params.id
+        const resolvedParams = await context.params
+        const sessionId = resolvedParams.id
 
         if (!userId || !sessionId) {
             return NextResponse.json({ error: "User ID and Session ID required" }, { status: 400 })
